@@ -1,0 +1,9 @@
+[staging]
+192.168.170.134 ansible_user=aziz
+
+[production]
+192.168.170.135 ansible_user=aziz
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'

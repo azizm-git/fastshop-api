@@ -5,3 +5,5 @@ target/
 .vscode/
 .DS_Store
 results.jtl
+jmeter.log
+results.jtl

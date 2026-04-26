@@ -1,0 +1,71 @@
+---
+# ══════════════════════════════════════════════════════════
+# Playbook de déploiement FastShop API
+# Variables attendues (passées via -e par Jenkins) :
+#   - target_host : IP du host cible (192.168.170.134 ou .135)
+#   - image       : nom complet de l'image (ex: azizmjd/fastshop-api:develop-12)
+#   - app_env     : staging | production
+# ══════════════════════════════════════════════════════════
+
+- name: "Déploiement FastShop API ({{ app_env }})"
+  hosts: "{{ target_host }}"
+  become: yes
+  gather_facts: no
+
+  vars:
+    container_name: "fastshop-api-{{ app_env }}"
+    host_port: "{{ '8090' if app_env == 'staging' else '8091' }}"
+    container_port: "8080"
+
+  tasks:
+
+    - name: "Login Docker Hub (read-only suffit pour pull)"
+      community.docker.docker_login:
+        username: "{{ lookup('env', 'DOCKER_USER') | default(omit, true) }}"
+        password: "{{ lookup('env', 'DOCKER_PASS') | default(omit, true) }}"
+      when: lookup('env', 'DOCKER_USER') | length > 0
+      ignore_errors: yes
+
+    - name: "Pull de la nouvelle image"
+      community.docker.docker_image:
+        name: "{{ image }}"
+        source: pull
+        force_source: yes
+
+    - name: "Stop & remove ancien conteneur (si existe)"
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        state: absent
+
+    - name: "Lancer le nouveau conteneur"
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ image }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "{{ host_port }}:{{ container_port }}"
+        env:
+          SPRING_PROFILES_ACTIVE: "{{ app_env }}"
+        labels:
+          app: "fastshop-api"
+          env: "{{ app_env }}"
+
+    - name: "Attendre que l'app soit UP (max 30s)"
+      ansible.builtin.uri:
+        url: "http://localhost:{{ host_port }}/api/products/health"
+        method: GET
+        status_code: 200
+      register: health
+      until: health.status == 200
+      retries: 15
+      delay: 2
+
+    - name: "Récap du déploiement"
+      ansible.builtin.debug:
+        msg:
+          - "✅ {{ container_name }} déployé"
+          - "Image     : {{ image }}"
+          - "Env       : {{ app_env }}"
+          - "URL       : http://{{ target_host }}:{{ host_port }}/api/products"
+          - "Health    : {{ health.json.status | default('UP') }}"
